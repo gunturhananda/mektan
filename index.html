@@ -1182,45 +1182,121 @@ function buildCalcHTML(tabId, R) {
     case 'hidrometer': {
       const h = R.hidrometer;
       const r0 = h.readings[0];
+      // a) Interpolasi L (mm) vertikal persis PDF hal. 96 (163 - 1.6*Rh)
       const x1L = Math.floor(r0.rh);
       const x2L = x1L + 1;
-      const y1L = 163 - 1.6 * x1L;
-      const y2L = 163 - 1.6 * x2L;
+      const y1L = +(163 - 1.6 * x1L).toFixed(1);
+      const y2L = +(163 - 1.6 * x2L).toFixed(1);
+      const dxL = +(r0.rh - x1L).toFixed(2);
+      const dyL = +(y2L - y1L).toFixed(1);
+      const lhsL = +(dxL * dyL).toFixed(3);
+      const yResL = +(lhsL + y1L).toFixed(2);
+
+      // b) Interpolasi K vertikal persis PDF hal. 96-97 (bracket Gs step 0.05 pada T = 27°C)
+      const x1K = Math.floor(h.gs / 0.05) * 0.05;
+      const x2K = +(x1K + 0.05).toFixed(2);
+      const kAtGs = (gsVal) => Math.sqrt(30 * 0.00851 / (980 * (gsVal - 1)));
+      const y1K = kAtGs(x1K);
+      const y2K = kAtGs(x2K);
+      const dxK = +(h.gs - x1K).toFixed(4);
+      const dyK = y2K - y1K;
+      const lhsK = dxK * dyK;
+      const rhsConstK = 0.05 * y1K;
+      const numK = lhsK + rhsConstK;
+
+      // g) Interpolasi c vertikal persis PDF hal. 98 (bracket Gs step 0.05)
+      const x1C = x1K;
+      const x2C = x2K;
+      const cAtGs = (gsVal) => (gsVal * (2.65 - 1)) / ((gsVal - 1) * 2.65);
+      const y1C = cAtGs(x1C);
+      const y2C = cAtGs(x2C);
+      const dxC = +(h.gs - x1C).toFixed(4);
+      const dyC = y2C - y1C;
+      const lhsC = dxC * dyC;
+      const numC = lhsC + 0.05 * y1C;
+
       return wrap(`
         ${calcHead('5.', 'Pengolahan Data', 'Berikut merupakan data perhitungan uji analisis hidrometer:')}
         <div class="calc-indent1">
           ${eqPairs([
             ['Rh', `${fmt(r0.rh, 2)}`],
             ['Massa tanah', '100 gr'],
-            ['Berat jenis (Gs)', `${fmt(h.gs, 3)}`],
+            ['Berat jenis', `${fmt(h.gs, 3)}`],
             ['Suhu', '27°C'],
             ['% lolos saringan No. 200', `${fmt(h.lolos200, 2)}%`]
           ])}
         </div>
-        <div class="calc-sec font-bold">Maka :</div>
-        <div class="calc-step font-bold">a) Nilai L (mm)</div>
+        <div class="calc-sec">Maka :</div>
+
+        <div class="calc-step">a) Nilai L (mm)</div>
         <div class="calc-indent1">
-          <div>Interpolasi: x = ${fmt(r0.rh, 2)}, x₁ = ${x1L}, x₂ = ${x2L}, y₁ = ${fmt(y1L, 1)}, y₂ = ${fmt(y2L, 1)}</div>
-          ${eqLines(frac('x − x₁','x₂ − x₁'), [frac('y − y₁','y₂ − y₁')])}
-          ${eqLines('L', [`16,3 − 0,16 × ${fmt(r0.rh, 2)}`, `<b>${fmt(r0.L, 3)} cm</b> (${fmt(r0.L * 10, 1)} mm)`])}
+          <div>Interpolasi</div>
+          ${eqPairs([
+            ['x', fmt(r0.rh, 2)],
+            ['x₁', fmt(x1L, 0)],
+            ['x₂', fmt(x2L, 0)],
+            ['y₁', fmt(y1L, 1)],
+            ['y₂', fmt(y2L, 1)]
+          ])}
+          <div class="calc-step">${eqLines(frac('x − x₁','x₂ − x₁'), [frac('y − y₁','y₂ − y₁')])}</div>
+          <div class="calc-step">${eqLines(frac(`${fmt(r0.rh, 2)} − ${x1L}`, `${x2L} − ${x1L}`), [frac(`y − ${fmt(y1L, 1)}`, `${fmt(y2L, 1)} − ${fmt(y1L, 1)}`)])}</div>
+          <div class="calc-step">${eqLines(frac(fmt(dxL, 2), '1'), [frac(`y − ${fmt(y1L, 1)}`, fmt(dyL, 1))])}</div>
+          <div class="calc-step">${eqLines(fmt(lhsL, 2), [`y − ${fmt(y1L, 1)}`])}</div>
+          <div class="calc-step">${eqLines('y', [`${fmt(lhsL, 2)} + ${fmt(y1L, 1)}`, `${fmt(yResL, 1)} mm = ${fmt(r0.L, 3)} cm`])}</div>
         </div>
-        <div class="calc-step font-bold">b) Nilai K (T = 27°C, Gs = ${fmt(h.gs, 3)})</div>
-        <div class="calc-indent1">${eqLines('K', ['Interpolasi tabel K pada T = 27°C', `<b>${fmt(r0.K, 6)}</b>`])}</div>
-        <div class="calc-step font-bold">c) Mencari nilai (L/t)<sup>½</sup></div>
-        <div class="calc-indent1">${eqLines('(L/t)<sup>½</sup>', [`(${frac(fmt(r0.L, 3), fmt(r0.t, 1))})<sup>½</sup>`, `<b>${fmt(r0.sqrtLt, 3)}</b>`])}</div>
-        <div class="calc-step font-bold">d) Nilai diameter (D)</div>
-        <div class="calc-indent1">${eqLines('D', ['K × √(L/t)', `${fmt(r0.K, 6)} × ${fmt(r0.sqrtLt, 3)}`, `<b>${fmt(r0.Dmm, 4)} mm</b>`])}</div>
-        <div class="calc-step font-bold">e) Koreksi suhu (k)</div>
-        <div class="calc-indent1">${eqPairs([['T', '27°C'], ['k', '<b>−0,50</b>']])}</div>
-        <div class="calc-step font-bold">f) Nilai Rh + k</div>
-        <div class="calc-indent1">${eqLines('Rh + k', [`${fmt(r0.rh, 2)} + (−0,50)`, `<b>${fmt(r0.rhK, 2)}</b>`])}</div>
-        <div class="calc-step font-bold">g) Nilai N (Interpolasi c = ${fmt(h.c, 4)})</div>
-        <div class="calc-indent1">${eqLines('N', [`${frac('(Rh + k) × c','Ws')} × 100%`, `${frac(`${fmt(r0.rhK, 2)} × ${fmt(h.c, 4)}`,'100')} × 100%`, `<b>${fmt(r0.N, 3)}%</b>`])}</div>
-        <div class="calc-step font-bold">h) Nilai N'</div>
-        <div class="calc-indent1">${eqLines("N'", [`${frac('N','100')} × % lolos saringan No. 200`, `${frac(fmt(r0.N, 3),'100')} × ${fmt(h.lolos200, 2)}%`, `<b>${fmt(r0.Np, 3)}%</b>`])}</div>
+
+        <div class="calc-sec">b) Nilai K</div>
+        <div class="calc-indent1">
+          <div>Interpolasi K</div>
+          ${eqPairs([
+            ['x', fmt(h.gs, 3)],
+            ['x₁', fmt(x1K, 2)],
+            ['x₂', fmt(x2K, 2)],
+            ['y₁', fmt(y1K, 5)],
+            ['y₂', fmt(y2K, 5)]
+          ])}
+          <div class="calc-step">${eqLines(frac('x − x₁','x₂ − x₁'), [frac('y − y₁','y₂ − y₁')])}</div>
+          <div class="calc-step">${eqLines(frac(`${fmt(h.gs, 3)} − ${fmt(x1K, 2)}`, `${fmt(x2K, 2)} − ${fmt(x1K, 2)}`), [frac(`y − ${fmt(y1K, 5)}`, `${fmt(y2K, 5)} − ${fmt(y1K, 5)}`)])}</div>
+          <div class="calc-step">${eqLines(frac(fmt(dxK, 3), '0,05'), [frac(`y − ${fmt(y1K, 5)}`, fmt(dyK, 5))])}</div>
+          <div class="calc-step">${eqLines(`${fmt(dxK, 3)} (${fmt(dyK, 5)})`, [`0,05 (y − ${fmt(y1K, 5)})`])}</div>
+          <div class="calc-step">${eqLines('0,05 y', [fmt(numK, 7)])}</div>
+          <div class="calc-step">${eqLines('y', [frac(fmt(numK, 7), '0,05'), fmt(r0.K, 6)])}</div>
+        </div>
+
+        <div class="calc-sec">c) Mencari nilai (L/t)<sup>½</sup></div>
+        <div class="calc-indent1">${eqLines(`(${frac('L','t')})<sup>½</sup>`, [`(${frac(fmt(r0.L, 3), fmt(r0.t, 1))})<sup>½</sup>`, fmt(r0.sqrtLt, 3)])}</div>
+
+        <div class="calc-sec">d) Nilai diameter</div>
+        <div class="calc-indent1">${eqLines('D', [`K √(${frac('L','t')})`, `${fmt(r0.K, 6)} × ${fmt(r0.sqrtLt, 3)}`, `${fmt(r0.Dmm, 4)} mm`])}</div>
+
+        <div class="calc-sec">e) Koreksi suhu</div>
+        <div class="calc-indent1">${eqPairs([['T', '27°C'], ['k', '−0,5']])}</div>
+
+        <div class="calc-sec">f) Nilai Rh + k</div>
+        <div class="calc-indent1">${eqLines('Rh + k', [`${fmt(r0.rh, 2)} + (−0,5)`, fmt(r0.rhK, 2)])}</div>
+
+        <div class="calc-sec">g) Nilai N</div>
+        <div class="calc-indent1">
+          ${eqLines('N', [`${frac('(Rh + k) · c','Ws')} × 100%`, `${frac(`(${fmt(r0.rhK, 2)}) · ${fmt(h.c, 4)}`,'100')} × 100%`, `${fmt(r0.N, 3)}%`])}
+          <div class="calc-step">Interpolasi Nilai c</div>
+          ${eqPairs([
+            ['x', fmt(h.gs, 3)],
+            ['x₁', fmt(x1C, 2)],
+            ['x₂', fmt(x2C, 2)],
+            ['y₁', fmt(y1C, 4)],
+            ['y₂', fmt(y2C, 4)]
+          ])}
+          <div class="calc-step">${eqLines(frac('x − x₁','x₂ − x₁'), [frac('y − y₁','y₂ − y₁')])}</div>
+          <div class="calc-step">${eqLines(frac(`${fmt(h.gs, 3)} − ${fmt(x1C, 2)}`, `${fmt(x2C, 2)} − ${fmt(x1C, 2)}`), [frac(`y − ${fmt(y1C, 4)}`, `${fmt(y2C, 4)} − ${fmt(y1C, 4)}`)])}</div>
+          <div class="calc-step">${eqLines(frac(fmt(dxC, 3), '0,05'), [frac(`y − ${fmt(y1C, 4)}`, fmt(dyC, 4))])}</div>
+          <div class="calc-step">${eqLines('0,05 y', [fmt(numC, 6)])}</div>
+          <div class="calc-step">${eqLines('y', [frac(fmt(numC, 6), '0,05'), fmt(h.c, 4)])}</div>
+        </div>
+
+        <div class="calc-sec">h) Nilai N'</div>
+        <div class="calc-indent1">${eqLines("N'", [`${frac('N','100')} × % lolos saringan No. 200`, `${frac(fmt(r0.N, 3),'100')} × ${fmt(h.lolos200, 2)}%`, `${fmt(r0.Np, 3)}%`])}</div>
       `);
     }
-
     case 'pemadatan': {
       const r = R.pemadatan.rows[0];
       return wrap(`
@@ -1296,6 +1372,14 @@ function buildCalcHTML(tabId, R) {
     case 'konsolidasi': {
       const k = R.konsolidasi;
       const st2 = k.stages[2];
+      // Cawan sesudah percobaan 1 (PDF hal. 132: W1 = 34,9, W2 = 29,2, W3 = 11,3)
+      const kaW1 = k.kaSes[0].basah;
+      const kaW2 = k.kaSes[0].kering;
+      const kaTk = k.kaSes[0].tanahKering;
+      const kaW3 = +(kaW2 - kaTk).toFixed(2);
+      const kaAir = +(kaW1 - kaW2).toFixed(2);
+      const kaPct = (kaAir / kaTk) * 100;
+      const dialMm = +(st2.bCm * 10).toFixed(3);
       return wrap(`
         ${calcHead('3.7.5', 'Pengolahan Data', 'Data Pengujian Konsolidasi Pada Praktikum Mekanika Tanah sebagai berikut:')}
         <div class="calc-indent1">
@@ -1308,59 +1392,79 @@ function buildCalcHTML(tabId, R) {
             ['Volume cincin (V)', `${fmt(k.V, 3)} cm³`]
           ])}
         </div>
-        <div class="calc-sec font-bold">1. Menghitung angka pori dan derajat kejenuhan</div>
+
+        <div class="calc-sec">1. Menghitung angka pori dan derajat kejenuhan</div>
         <div class="calc-indent1">
           ${eqPairs([
             ['Berat cincin + tanah basah (W₄)', `${fmt(k.w4, 1)} gram`],
             ['Berat tanah basah (Wb)', `${fmt(k.Wb, 1)} gram`],
             ['Berat tanah kering (Wk)', `${fmt(k.Wk, 2)} gram`]
           ])}
-          <div class="calc-step">${eqLines('Berat volume kering (γd)', [frac('Wk','V'), frac(fmt(k.Wk, 2), fmt(k.V, 2)), `<b>${fmt(k.gd, 3)} gram/cm³</b>`])}</div>
-          <div class="calc-step">${eqLines('Tinggi bagian padat (Hs)', [frac('Wk','Gs × A'), frac(fmt(k.Wk, 2), `${fmt(k.gs, 3)} × ${fmt(k.A, 2)}`), `<b>${fmt(k.Hs, 3)} cm</b>`])}</div>
-          <div class="calc-step">${eqLines('Angka pori awal (e₀)', [frac('Ho − Hs','Hs'), frac(`${fmt(k.ho, 2)} − ${fmt(k.Hs, 3)}`, fmt(k.Hs, 3)), `<b>${fmt(k.e0, 3)}</b>`])}</div>
-          <div class="calc-step">${eqLines('Derajat kejenuhan (Sr)', [frac('w₀ × Gs','e₀'), frac(`${fmt(k.w0, 2)} × ${fmt(k.gs, 3)}`, fmt(k.e0, 3)), `<b>${fmt(k.S, 2)}%</b>`])}</div>
+          <div class="calc-step">${eqLines('Berat volume kering (γd)', [frac('Wk','V'), frac(fmt(k.Wk, 2), fmt(k.V, 2)), `${fmt(k.gd, 3)} gram/cm³`])}</div>
+          <div class="calc-step">${eqLines('Tinggi bagian padat (Hs)', [frac('Wk','(Gs × A)'), frac(fmt(k.Wk, 2), `${fmt(k.gs, 3)} × ${fmt(k.A, 2)}`), `${fmt(k.Hs, 3)} cm`])}</div>
+          <div class="calc-step">${eqLines('Angka pori (e₀)', [frac('Ho − Hs','Hs'), frac(`${fmt(k.ho, 2)} − ${fmt(k.Hs, 3)}`, fmt(k.Hs, 3)), `${fmt(k.e0, 3)}`])}</div>
+          <div class="calc-step">${eqLines('Derajat kejenuhan (Sr)', [frac('(w₀ × Gs)','e₀'), frac(`${fmt(k.w0, 2)} × ${fmt(k.gs, 3)}`, fmt(k.e0, 3)), `${fmt(k.S, 2)}%`])}</div>
         </div>
-        <div class="calc-sec font-bold">2. Uji konsolidasi (Contoh Beban 1 kg, p = ${fmt(st2.p, 3)} kg/cm²)</div>
-        <div class="calc-indent1">
-          ${eqLines('a. Perubahan tebal (ΔH)', [frac('bacaan akhir − awal','1000'), `<b>${fmt(st2.dh, 4)} cm</b>`])}
-          <div class="calc-step">${eqLines('b. Perubahan angka pori (Δe)', [frac('ΔH','Hs'), frac(fmt(st2.dh, 4), fmt(k.Hs, 3)), `<b>${fmt(st2.de, 4)}</b>`])}</div>
-          <div class="calc-step">${eqLines('c. Angka pori (e)', ['e₁ − Δe', `${fmt(k.stages[1].e, 3)} − ${fmt(st2.de, 4)}`, `<b>${fmt(st2.e, 3)}</b>`])}</div>
-          <div class="calc-step">${eqLines('d. Indeks kompresi (Cc)', [frac('e₁ − e₂','log(p₂/p₁)'), `<b>${fmt(st2.cc, 4)}</b>`])}</div>
-          <div class="calc-step">${eqLines('e. Tebal akhir (h)', ['h₁ − Δh', `${fmt(k.stages[1].h, 4)} − ${fmt(st2.dh, 4)}`, `<b>${fmt(st2.h, 4)} cm</b>`])}</div>
-          <div class="calc-step">${eqLines('f. Tebal rata-rata (d)', [frac('h₁ + h₂','2'), frac(`${fmt(k.stages[1].h, 4)} + ${fmt(st2.h, 4)}`,'2'), `<b>${fmt(st2.dAvg, 4)} cm</b>`])}</div>
-          <div class="calc-step">${eqLines('g. t₉₀', ['(√t₉₀)²', `(${fmt(st2.sqrtT90, 4)})²`, `<b>${fmt(st2.t90Min, 3)} menit</b> (${fmt(st2.t90Sec, 1)} detik)`])}</div>
-          <div class="calc-step">${eqLines('h. Koefisien konsolidasi (Cv)', [frac('0,848 × (d/2)²','t₉₀ (detik)'), `<b>${fmtExp(st2.cv)} cm²/detik</b>`])}</div>
-        </div>
-      `);
-    }
 
-    case 'ucs': {
-      const r = R.ucs.rows[6]; // t = 5 mnt (puncak)
-      return wrap(`
-        ${calcHead('3.8.5', 'Pengolahan Data', 'Berikut perhitungan yang dilakukan pada pengolahan data uji kuat tekan bebas:')}
-        <div class="font-bold">Diketahui (t = ${fmt(r.t, 1)} menit, puncak):</div>
+        <div class="calc-sec">2. Menambah kadar air</div>
         <div class="calc-indent1">
           ${eqPairs([
-            ['Diameter contoh (D)', `${fmt(R.ucs.D, 2)} cm`],
-            ['Tinggi contoh (H)', `${fmt(R.ucs.H, 1)} cm`],
-            ['Luas perawal (A₀)', `${fmt(R.ucs.A0, 3)} cm²`],
-            ['Dial reading beban', `${fmt(r.loadDiv, 2)}`],
-            ['Regangan (ε)', `${fmt(r.eps, 5)}`],
-            ['Kalibrasi proving ring', '0,0045']
+            ['Berat tanah basah + cawan (W₁)', `${fmt(kaW1, 1)} gram`],
+            ['Berat tanah kering + cawan (W₂)', `${fmt(kaW2, 1)} gram`],
+            ['Berat cawan (W₃)', `${fmt(kaW3, 1)} gram`]
           ])}
+          <div class="calc-step">${eqLines('Berat tanah kering', ['W₂ − W₃', `${fmt(kaW2, 1)} − ${fmt(kaW3, 1)}`, `${fmt(kaTk, 1)} gram`])}</div>
+          <div class="calc-step">${eqLines('Berat air', ['W₁ − W₂', `${fmt(kaW1, 1)} − ${fmt(kaW2, 1)}`, `${fmt(kaAir, 1)} gram`])}</div>
+          <div class="calc-step">${eqLines('Kadar air', [`${frac('Berat air','Berat tanah kering')} × 100%`, `${frac(fmt(kaAir, 1), fmt(kaTk, 1))} × 100%`, `${fmt(kaPct, 2)}%`])}</div>
         </div>
-        <div class="calc-sec font-bold">a. Menghitung beban (P)</div>
-        <div class="calc-indent1">${eqLines('Beban', ['Dial reading × Kalibrasi proving ring × 101,972', `${fmt(r.loadDiv, 2)} × 0,0045 × 101,972`, `<b>${fmt(r.loadKg, 4)} kg</b>`])}</div>
-        <div class="calc-sec font-bold">b. Menghitung luas terkoreksi (A')</div>
-        <div class="calc-indent1">${eqLines("Luas terkoreksi (A')", [frac('A₀','1 − ε'), frac(fmt(R.ucs.A0, 3), `1 − ${fmt(r.eps, 5)}`), `<b>${fmt(r.aKor, 3)} cm²</b>`])}</div>
-        <div class="calc-sec font-bold">c. Menghitung tegangan (σ / qu) dan kohesi (cu)</div>
+
+        <div class="calc-sec">3. Uji konsolidasi</div>
         <div class="calc-indent1">
-          ${eqLines('Tegangan (qu)', [frac('Beban',"Luas terkoreksi (A')"), frac(fmt(r.loadKg, 4), fmt(r.aKor, 3)), `<b>${fmt(R.ucs.qu, 4)} kg/cm²</b>`])}
-          <div class="calc-step">${eqLines('Kohesi tak teralir (cu)', [frac('qu','2'), frac(fmt(R.ucs.qu, 4),'2'), `<b>${fmt(R.ucs.cu, 4)} kg/cm²</b>`])}</div>
+          ${eqPairs([
+            ['Tegangan (p)', `${fmt(st2.p, 3)} kg/cm²`],
+            ['Dial reading akhir', `${fmt(dialMm, 2)} mm`]
+          ])}
+          <div class="calc-step">${eqLines('a. Perubahan tebal (ΔH)', [frac('bacaan akhir','10'), frac(fmt(dialMm, 2),'10'), `${fmt(st2.bCm, 4)} cm (Δh tahap = ${fmt(st2.dh, 4)} cm)`])}</div>
+          <div class="calc-step">${eqLines('b. Perubahan angka pori (Δe)', [frac('Δh','Hs'), frac(fmt(st2.dh, 4), fmt(k.Hs, 3)), `${fmt(st2.de, 4)}`])}</div>
+          <div class="calc-step">${eqLines('c. Angka pori (e)', ['e₁ − Δe', `${fmt(k.stages[1].e, 3)} − ${fmt(st2.de, 4)}`, `${fmt(st2.e, 3)}`])}</div>
+          <div class="calc-step">${eqLines('d. Indeks kompresi (Cc)', [frac('e₁ − e₂', `log (${frac('p₂','p₁')})`), `${fmt(st2.cc, 4)}`])}</div>
+          <div class="calc-step">${eqLines('e. Tebal akhir (h)', ['h₁ − Δh', `${fmt(k.stages[1].h, 4)} − ${fmt(st2.dh, 4)}`, `${fmt(st2.h, 4)} cm`])}</div>
+          <div class="calc-step">${eqLines('f. Tebal rata-rata (d)', [frac('h₁ + h₂','2'), frac(`${fmt(k.stages[1].h, 4)} + ${fmt(st2.h, 4)}`,'2'), `${fmt(st2.dAvg, 4)} cm`])}</div>
+          <div class="calc-step">${eqLines('g. t₉₀', ['(√t₉₀)²', `(${fmt(st2.sqrtT90, 4)})²`, `${fmt(st2.t90Min, 3)} menit (${fmt(st2.t90Sec, 1)} detik)`])}</div>
+          <div class="calc-step">${eqLines('h. Koefisien konsolidasi (Cv)', [frac('0,848 × (d/2)²','t₉₀ (detik)'), `${fmtExp(st2.cv)} cm²/detik`])}</div>
         </div>
       `);
     }
-
+    case 'ucs': {
+      const r = R.ucs.rows[2]; // t = 1 menit (Dial reading = 2 + Δ NIM, persis PDF hal. 43)
+      const luasMm2 = 3.14 * 19.1 * 19.1; // 1145.5034 mm²
+      const bebanKn = r.loadDiv * R.ucs.cal;
+      const denomKor = 1 - r.eps; // 0.989394
+      const luasKorM2 = (luasMm2 * 0.000001) / denomKor; // 0.0011578 m²
+      const tegKpa = bebanKn / luasKorM2; // 7.7735 kPa pada NIM=0!
+      return wrap(`
+        ${calcHead('3.8.5', 'Pengolahan Data', 'Berikut Perhitungan yang dilakukan pada pengolahan data uji kuat tekan bebas:')}
+        <div>Diketahui :</div>
+        <div class="calc-indent1">
+          ${eqPairs([
+            ['Diameter contoh', '38,2 mm'],
+            ['Tinggi contoh', '66 mm']
+          ])}
+          ${eqLines('Luas Perawal', ['π · r²', '3,14 × 19,1²', `${fmt(luasMm2, 1)} mm²`])}
+          ${eqPairs([
+            ['Dial reading', `${fmt(r.loadDiv, 2)}`],
+            ['Angka terkoreksi', `${fmt(denomKor, 5)}`],
+            ['Kalibrasi Proving ring', `${fmt(R.ucs.cal, 4)}`]
+          ])}
+        </div>
+        <div class="calc-sec">a. Menghitung beban</div>
+        <div class="calc-indent1">${eqLines('Beban', ['dial reading × kalibrasi proving ring', `${fmt(r.loadDiv, 2)} × ${fmt(R.ucs.cal, 4)}`, `${fmt(bebanKn, 5)}`])}</div>
+        <div class="calc-sec">b. Menghitung Luas terkoreksi</div>
+        <div class="calc-indent1">${eqLines('Luas terkoreksi', [frac('(Luas Perawal × 0,000001)', `(1 − (${frac('regangan','100')}))`), frac(`${fmt(luasMm2, 1)} × 0,000001`, fmt(denomKor, 5)), `${fmt(luasKorM2, 6)}`])}</div>
+        <div class="calc-sec">c. Menghitung tegangan</div>
+        <div class="calc-indent1">${eqLines('Tegangan', [frac('beban', 'luas terkoreksi'), frac(fmt(bebanKn, 5), fmt(luasKorM2, 6)), `${fmt(tegKpa, 4)}`])}</div>
+      `);
+    }
     case 'directshear': {
       const ds = R.directShear;
       const dMax1 = Math.max(...ds.rows.map(row => row[0].dial || 0)); const gayaMax1 = dMax1 * ds.cal;
